@@ -432,6 +432,7 @@ pre { border-radius: 14px; }
 .stage .ubar i { display: block; height: 100%; background: var(--c); }
 .stage .ub .sm { min-width: 3.2em; text-align: right; color: var(--ink); }
 .stage .dep.full .ub .sm { color: var(--ok); font-weight: 600; }
+.stage .node .sm.idle { color: var(--bad); }
 
 .simpanels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 @media (max-width: 820px) { .simpanels { grid-template-columns: minmax(0, 1fr); } }
@@ -2085,7 +2086,7 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
     var D = s.deps;
     var r = { dep: {}, total: 0, hits: 0, reach: 0, served: 0, failed: 0, complexReach: 0, complexOnReason: 0, tokens: 0, stdTokens: 0, fe: fe };
     var remaining = {};
-    D.forEach(function (d) { r.dep[d.id] = { used: 0, req: 0, fail: 0, cap: d.cap * 1000 }; remaining[d.id] = d.cap * 1000; });
+    D.forEach(function (d) { r.dep[d.id] = { used: 0, req: 0, fail: 0, demand: 0, demTok: 0, cap: d.cap * 1000 }; remaining[d.id] = d.cap * 1000; });
     function tok(c, d) { return TOK[c] * MODELS[d.model].mult; }
     function pick(kinds) {
       for (var i = 0; i < kinds.length; i++) {
@@ -2127,7 +2128,10 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
 
     /* primary pass: each deployment serves up to its capacity, proportionally */
     var demand = {};
-    items.forEach(function (it) { demand[it.d.id] = (demand[it.d.id] || 0) + it.req * tok(it.c, it.d); });
+    items.forEach(function (it) {
+      demand[it.d.id] = (demand[it.d.id] || 0) + it.req * tok(it.c, it.d);
+      r.dep[it.d.id].demand += it.req; r.dep[it.d.id].demTok += it.req * tok(it.c, it.d);
+    });
     var scale = {};
     D.forEach(function (d) { var dm = demand[d.id] || 0; scale[d.id] = dm > 0 ? Math.min(1, (d.cap * 1000) / dm) : 1; });
     var overflow = [];
@@ -2157,6 +2161,11 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
     return r;
   }
 
+  var TYPICAL = { small: TOK.simple, mid: TOK.medium, reason: TOK.complex * MODELS.reason.mult };
+  function maxReq(d, dv) {
+    var per = dv && dv.demand > 0.01 ? dv.demTok / dv.demand : TYPICAL[d.model];
+    return d.cap * 1000 / per;
+  }
   function score() {
     var a = res.avg, p = res.peak;
     var ptus = st.deps.filter(function (d) { return d.type === 'ptu'; });
@@ -2173,6 +2182,10 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
   function hint(sc) {
     var D = st.deps;
     if (!D.length) return 'Drag a model deployment into the Foundry project.';
+    if (!st.pipe.gateway) {
+      var idle = D.filter(function (d) { return res.avg.dep[d.id].demand < 0.5; })[0];
+      if (idle) return MODELS[idle.model].name + ' (' + (idle.type === 'ptu' ? 'PTU' : 'Standard') + ') gets no traffic, so raising its quota changes nothing. Without the AI gateway the app calls one deployment per model. Add the gateway to spread load and spill over.';
+    }
     if (sc.quality < 0.9) {
       if (!st.pipe.router) return 'Complex questions are landing on models that can\'t reason well. Add a router.';
       if (!D.some(function (d) { return d.model === 'reason'; })) return 'Add a reasoning model deployment for complex queries.';
@@ -2243,8 +2256,10 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
     st.deps.forEach(function (d, i) {
       var y = 22 + i * 70, dv = v.dep[d.id], util = dv.used / (d.cap * 1000);
       var n = addNode(752, y, 196, 62, 'node dep' + (st.sel === d.id ? ' sel' : '') + (d.type === 'ptu' && util >= 0.95 ? ' full' : ''),
-        '<div class="dh"><b>' + MODELS[d.model].short + '</b><span class="badge' + (d.type === 'ptu' ? ' ptu' : '') + '">' + (d.type === 'ptu' ? 'PTU' : 'Standard') + '</span></div>' +
-        '<span class="sm">' + d.cap + 'k TPM · ' + num(dv.req) + ' req/min</span>' +
+        '<div class="dh"><b>' + MODELS[d.model].short + '</b><span class="badge' + (d.type === 'ptu' ? ' ptu' : '') + '">' + (d.type === 'ptu' ? 'PTU' : 'Std') + ' · ' + d.cap + 'k</span></div>' +
+        (dv.demand < 0.5 && dv.req < 0.5
+          ? '<span class="sm idle">idle: nothing routes here</span>'
+          : '<span class="sm">' + num(dv.req) + '/' + num(Math.max(dv.demand, dv.req)) + ' req · max ' + num(maxReq(d, dv)) + '</span>') +
         '<div class="ub"><div class="ubar"><i style="width:' + Math.min(100, util * 100).toFixed(1) + '%"></i></div><span class="sm">' + pct(util) + '</span></div>',
         { tabindex: '0', role: 'button', 'data-sel': String(d.id), 'aria-label': 'Select ' + MODELS[d.model].name + ' deployment' });
       n.style.setProperty('--c', 'var(' + MODELS[d.model].c + ')');
@@ -2343,9 +2358,11 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
       document.getElementById('pCapNote').textContent = d.type === 'ptu'
         ? 'Reserved capacity, billed hourly whether used or not. Over 100% returns 429.'
         : 'Pay per token. Quota allows about ' + num(d.cap * 6) + ' RPM (6 RPM per 1,000 TPM).';
+      var dv = res.avg && res.avg.dep[d.id];
+      document.getElementById('pCapNote').textContent += ' At this traffic mix it can serve up to ' + num(maxReq(d, dv)) + ' requests a minute. Raising it only helps while requests are being turned away.';
     }
     note();
-    document.getElementById('pCap').addEventListener('input', function (e) { d.cap = parseFloat(e.target.value); document.getElementById('pCap-o').textContent = d.cap + 'k TPM'; update(false); });
+    document.getElementById('pCap').addEventListener('input', function (e) { d.cap = parseFloat(e.target.value); document.getElementById('pCap-o').textContent = d.cap + 'k TPM'; update(false); note(); });
     document.querySelectorAll('#pType button').forEach(function (b) {
       b.addEventListener('click', function () { d.type = b.getAttribute('data-t'); update(true); });
     });
