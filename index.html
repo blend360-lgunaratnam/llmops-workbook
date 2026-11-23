@@ -369,6 +369,27 @@ pre { border-radius: 14px; }
 .pattern { gap: 0.3rem; padding-block: 0.8rem; }
 .pattern .dg svg { max-height: 18vh; }
 .pattern p { font-size: 0.82em; color: var(--muted); }
+
+/* ---------- caching slides ---------- */
+.dg .seg { fill: var(--accent-soft); stroke: var(--hi); stroke-width: 1.2; }
+.dg .segc { fill: var(--task); opacity: 0.85; }
+.dg .segbad { fill: var(--bad); }
+.dg .t-on-mint { fill: var(--paper); font-family: var(--mono); font-size: 11px; font-weight: 600; }
+.dg .ring { fill: var(--accent-soft); fill-opacity: 0.45; stroke: var(--hi); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.dg .d-ok { fill: var(--ok); } .dg .d-bad { fill: var(--bad); } .dg .d-miss { fill: var(--muted); }
+.semgrid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 1.2rem; align-items: start; }
+@media (max-width: 900px) { .semgrid { grid-template-columns: minmax(0, 1fr); } }
+.semlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.semlist li { display: grid; grid-template-columns: 5.2em minmax(0,1fr) auto; gap: 0.6rem; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 0.35rem 0.7rem; font-size: 0.8em; }
+.semlist .sim { white-space: nowrap; }
+.semlist .diff { color: var(--muted); font-size: 0.85em; margin-left: 0.4em; }
+.semlist .sim { font-family: var(--mono); font-size: 0.9em; color: var(--muted); font-variant-numeric: tabular-nums; }
+.semlist .st { font-family: var(--mono); font-size: 0.75em; white-space: nowrap; padding: 0.1rem 0.55rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.semlist .st.ok { color: var(--ok); border-color: var(--ok); }
+.semlist .st.bad { color: var(--bad); border-color: var(--bad); }
+.semlist .st.waste { color: var(--task); border-color: var(--task); }
+.semtally { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; font-family: var(--mono); font-size: 0.8em; color: var(--muted); }
+.semtally b { color: var(--ink); }
 /* ---------- capstone simulator ---------- */
 :root {
   --c-gw: #3CC2B8; --c-cache: #D6B04E; --c-queue: #9AAAC4; --c-router: #E86AAE;
@@ -742,6 +763,152 @@ delay = delay * random.uniform(0.5, 1.0)  <span class="c"># jitter</span></code>
       </div>
       <aside class="notes">A common mistake: putting a timestamp or user name at the top of the system prompt, which breaks the prefix cache on every request. Order your prompt from most stable to least stable.</aside>
     </section>
+
+    <section class="slide" data-section="2 · Production concerns">
+      <div class="inner">
+        <div class="eyebrow">2 · Production concerns · Caching, step by step</div>
+        <h2>A response cache answers before the model is ever called</h2>
+        <figure class="dg">
+          <svg viewBox="0 0 900 290" role="img" aria-label="A request builds a cache key. On a hit the stored answer returns in about 5 milliseconds at no token cost. On a miss the LLM is called, the answer is stored with a time-to-live, and then returned.">
+            <defs><marker id="mkC1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker><marker id="mkC1h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-hi"/></marker><marker id="mkC1m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-mint"/></marker></defs>
+            <rect class="box" x="20" y="120" width="120" height="56" rx="10"/><text class="tb" x="80" y="153" text-anchor="middle">Request</text>
+            <line class="e" x1="140" y1="148" x2="176" y2="148" marker-end="url(#mkC1)"/>
+            <rect class="box" x="178" y="120" width="140" height="56" rx="10"/><text class="tb" x="248" y="144" text-anchor="middle">Build key</text><text class="m" x="248" y="163" text-anchor="middle">hash(model+prompt)</text>
+            <line class="e" x1="318" y1="148" x2="342" y2="148" marker-end="url(#mkC1)"/>
+            <polygon class="box-hi" points="380,110 418,148 380,186 342,148"/><text class="ts" x="380" y="152" text-anchor="middle">cached?</text>
+
+            <path class="e-hi" d="M380 110 L380 60 L466 60" marker-end="url(#mkC1h)"/><text class="m t-hi" x="390" y="88">hit</text>
+            <rect class="box-hi" x="468" y="32" width="200" height="56" rx="10"/><text class="tb" x="568" y="56" text-anchor="middle">Return stored answer</text><text class="m t-hi" x="568" y="75" text-anchor="middle">~5 ms · 0 tokens</text>
+            <path class="e-hi" d="M668 60 C 740 60, 820 70, 820 118" marker-end="url(#mkC1h)"/>
+
+            <line class="e" x1="418" y1="148" x2="466" y2="148" marker-end="url(#mkC1)"/><text class="m" x="442" y="140" text-anchor="middle">miss</text>
+            <rect class="box" x="468" y="120" width="200" height="56" rx="10"/><text class="tb" x="568" y="144" text-anchor="middle">Call the LLM</text><text class="m" x="568" y="163" text-anchor="middle">~2,300 ms · tokens billed</text>
+            <line class="e" x1="668" y1="148" x2="758" y2="148" marker-end="url(#mkC1)"/>
+            <line class="e-mint" x1="568" y1="176" x2="568" y2="216" marker-end="url(#mkC1m)"/><text class="m t-mint" x="578" y="200">write</text>
+            <rect class="box-mint" x="468" y="218" width="200" height="50" rx="10"/><text class="tb" x="568" y="240" text-anchor="middle">Store</text><text class="m t-mint" x="568" y="258" text-anchor="middle">key → answer · TTL 24h</text>
+            <path class="e-mint" d="M468 243 C 400 243, 380 230, 380 188"/>
+            <text class="m t-mint" x="372" y="266" text-anchor="end">next identical request: hit</text>
+
+            <rect class="box" x="760" y="120" width="120" height="56" rx="10"/><text class="tb" x="820" y="153" text-anchor="middle">Response</text>
+          </svg>
+          <figcaption>Every request pays for the key lookup (a few milliseconds); only misses pay for the model. At a 30% hit rate, 30% of traffic costs nothing and returns almost instantly. The catch: the key decides what counts as "the same request".</figcaption>
+        </figure>
+      </div>
+      <aside class="notes">Trace both paths. Ask: what's the cost of a hit that returns the wrong answer? That's the theme of the next three slides. Times are typical, not measured.</aside>
+    </section>
+
+    <section class="slide" data-section="2 · Production concerns">
+      <div class="inner">
+        <div class="eyebrow">2 · Production concerns · Caching, the key</div>
+        <h2>The cache key is your correctness contract</h2>
+        <figure class="dg">
+          <svg viewBox="0 0 820 192" role="img" aria-label="A cache key combines tenant, model version, prompt version, generation settings and the normalised question, then hashes them and stores the answer in Redis with a 24-hour time-to-live.">
+            <defs><marker id="mkC2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="f-muted"/></marker></defs>
+            <rect class="box" x="20" y="34" width="144" height="46" rx="8"/><text class="m" x="92" y="62" text-anchor="middle" style="fill:var(--ink)">tenant: acme</text>
+            <text class="m" x="92" y="104" text-anchor="middle">Never share answers</text><text class="m" x="92" y="120" text-anchor="middle">across customers</text>
+            <rect class="box" x="170" y="34" width="144" height="46" rx="8"/><text class="m" x="242" y="62" text-anchor="middle" style="fill:var(--ink)">model@2026-09</text>
+            <text class="m" x="242" y="104" text-anchor="middle">New model version,</text><text class="m" x="242" y="120" text-anchor="middle">new answers</text>
+            <rect class="box" x="320" y="34" width="154" height="46" rx="8"/><text class="m" x="397" y="62" text-anchor="middle" style="fill:var(--ink)">prompt@v14</text>
+            <text class="m" x="397" y="104" text-anchor="middle">Prompt change</text><text class="m" x="397" y="120" text-anchor="middle">retires old entries</text>
+            <rect class="box" x="480" y="34" width="124" height="46" rx="8"/><text class="m" x="542" y="62" text-anchor="middle" style="fill:var(--ink)">temp=0</text>
+            <text class="m" x="542" y="104" text-anchor="middle">Other settings,</text><text class="m" x="542" y="120" text-anchor="middle">other output</text>
+            <rect class="box-hi" x="610" y="34" width="204" height="46" rx="8"/><text class="m" x="712" y="62" text-anchor="middle" style="fill:var(--ink)">normalised question</text>
+            <text class="m" x="712" y="104" text-anchor="middle">Lower-case, trim,</text><text class="m" x="712" y="120" text-anchor="middle">collapse spaces</text>
+            <text class="m" x="20" y="22">cache key =</text>
+            <line class="e" x1="420" y1="132" x2="420" y2="158" marker-end="url(#mkC2)"/>
+            <text class="ts" x="420" y="180" text-anchor="middle">sha256(…) = 7f3a91c0…e21  →  Redis, TTL 24h</text>
+          </svg>
+        </figure>
+        <div class="grid2">
+          <div class="panel"><h3>How entries expire</h3>
+            <ul class="plain">
+              <li><strong>TTL</strong>: hours for FAQs, minutes for anything that changes</li>
+              <li><strong>Version bump</strong>: a new prompt or model version changes the key, so old entries are simply never hit again</li>
+              <li><strong>Source changed</strong>: when a RAG document updates, delete the entries that cited it</li>
+            </ul></div>
+          <div class="panel"><h3>What not to cache</h3>
+            <ul class="plain">
+              <li>Personalised answers ("my balance", "my orders")</li>
+              <li>Real-time data, or answers produced by tool calls with side effects</li>
+              <li>High-temperature creative output where variety is the point</li>
+            </ul></div>
+        </div>
+      </div>
+      <aside class="notes">Leave out the tenant and you've built a data leak: customer B gets customer A's answer. Leave out the prompt version and a prompt fix doesn't take effect until the TTL runs out. Every part of the key exists because someone got burned.</aside>
+    </section>
+
+    <section class="slide task top" data-section="2 · Production concerns">
+      <div class="inner">
+        <span class="task-tag">Try it · Semantic cache threshold</span>
+        <h2>Semantic cache: the threshold decides right from wrong</h2>
+        <div class="semgrid">
+          <figure class="dg">
+            <svg id="semSvg" viewBox="0 0 460 400" role="img" aria-label="A cached question sits at the centre. Six new questions sit at distances that reflect their similarity. The dashed circle is the similarity threshold; questions inside it are served the cached answer.">
+              <circle id="semRing" class="ring" cx="230" cy="200" r="120"/>
+              <g id="semDots"></g>
+              <rect class="f-hi" x="222" y="192" width="16" height="16" rx="3" transform="rotate(45 230 200)"/>
+              <text class="ts t-hi" x="230" y="232" text-anchor="middle">cached: “How do I reset my password?”</text>
+            </svg>
+            <figcaption>Distance from the centre = how different the question is. Inside the dashed circle, the user gets the cached answer.</figcaption>
+          </figure>
+          <div class="col" style="gap:0.8rem">
+            <div class="ctl"><label for="semTh">Similarity threshold</label><output id="semTh-o">0.90</output>
+              <input type="range" id="semTh" min="0.80" max="0.99" step="0.01" value="0.90"></div>
+            <ul class="semlist" id="semList"></ul>
+            <div class="semtally" id="semTally"></div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">Drag the threshold down to 0.87: the API-key question starts getting the password answer. Drag it up to 0.95: safe, but most paraphrases miss and you pay for the LLM call anyway. Production teams pick the threshold with a labelled set like this one, then monitor false hits with sampled evals.</aside>
+    </section>
+
+    <section class="slide" data-section="2 · Production concerns">
+      <div class="inner">
+        <div class="eyebrow">2 · Production concerns · Prompt (prefix) caching</div>
+        <h2>Prefix caching reuses the start of the prompt, so order it stable-first</h2>
+        <figure class="dg">
+          <svg viewBox="0 0 900 262" role="img" aria-label="Three prompts of 12.2k tokens. The first is fully billed. The second reuses a cached 5k-token prefix of system prompt and tool definitions. The third starts with a timestamp, so nothing matches and it is fully billed.">
+            <text class="ts" x="20" y="61">Request 1</text>
+            <rect class="seg" x="180.0" y="40" width="170.1" height="32" rx="3"/>
+            <text class="m" x="188.0" y="61" style="fill:var(--ink)">System prompt · 3.0k</text>
+            <rect class="seg" x="352.1" y="40" width="112.8" height="32" rx="3"/>
+            <text class="m" x="360.1" y="61" style="fill:var(--ink)">Tools · 2.0k</text>
+            <rect class="seg" x="466.9" y="40" width="342.3" height="32" rx="3"/>
+            <text class="m" x="474.9" y="61" style="fill:var(--ink)">Retrieved docs · 6.0k</text>
+            <rect class="seg" x="811.1" y="40" width="55.4" height="32" rx="3"/>
+            <rect class="seg" x="868.5" y="40" width="9.5" height="32" rx="3"/>
+            <text class="m" x="180" y="92">cold: 12.2k input tokens at full price, prefix written to cache</text>
+            <text class="ts" x="20" y="141">Request 2</text>
+            <rect class="segc" x="180.0" y="120" width="170.1" height="32" rx="3"/>
+            <text class="t-on-mint" x="188.0" y="141">System prompt · 3.0k</text>
+            <rect class="segc" x="352.1" y="120" width="112.8" height="32" rx="3"/>
+            <text class="t-on-mint" x="360.1" y="141">Tools · 2.0k</text>
+            <rect class="seg" x="466.9" y="120" width="342.3" height="32" rx="3"/>
+            <text class="m" x="474.9" y="141" style="fill:var(--ink)">Retrieved docs · 6.0k</text>
+            <rect class="seg" x="811.1" y="120" width="55.4" height="32" rx="3"/>
+            <rect class="seg" x="868.5" y="120" width="9.5" height="32" rx="3"/>
+            <text class="m" x="180" y="172"><tspan class="t-mint">5.0k cached (discounted, faster)</tspan> + 7.2k at full price: docs and question change per request</text>
+            <text class="ts" x="20" y="221">Broken</text>
+            <rect class="segbad" x="180.0" y="200" width="14" height="32" rx="3"/>
+            <rect class="seg" x="194.0" y="200" width="156.1" height="32" rx="3"/>
+            <text class="m" x="202.0" y="221" style="fill:var(--ink)">System prompt · 3.0k</text>
+            <rect class="seg" x="352.1" y="200" width="112.8" height="32" rx="3"/>
+            <text class="m" x="360.1" y="221" style="fill:var(--ink)">Tools · 2.0k</text>
+            <rect class="seg" x="466.9" y="200" width="342.3" height="32" rx="3"/>
+            <text class="m" x="474.9" y="221" style="fill:var(--ink)">Retrieved docs · 6.0k</text>
+            <rect class="seg" x="811.1" y="200" width="55.4" height="32" rx="3"/>
+            <rect class="seg" x="868.5" y="200" width="9.5" height="32" rx="3"/>
+            <text class="m t-bad" x="180" y="252">"Now: 12:41:07" at the top: the first tokens differ, nothing matches, 12.2k at full price</text>
+            <text class="m t-bad" x="187" y="196" text-anchor="middle">⏱</text>
+            <line class="grid" x1="466.9" y1="30" x2="466.9" y2="240"/>
+            <text class="m t-mint" x="466.9" y="24" text-anchor="middle">stable | changes per request</text>
+          </svg>
+          <figcaption>The provider caches the processed prompt and reuses it when the <em>start</em> of the next prompt is byte-identical. Unlike a response cache, the model still writes a fresh answer, so it can't serve a wrong one. In Azure OpenAI it applies automatically to prompts of 1,024 tokens or more; cached input tokens are billed at a discount and the first token arrives sooner.</figcaption>
+        </figure>
+      </div>
+      <aside class="notes">This is the cheapest win in the deck. Audit your prompt templates: anything that changes per request (dates, user names, request IDs) goes at the end. Check the provider's current discount and minimum length before quoting numbers.</aside>
+    </section>
+
 
     <section class="slide" data-section="2 · Production concerns">
       <div class="inner">
@@ -2573,6 +2740,64 @@ console.log(missing.length, missing.slice(0, 20));</code></pre>
   update(true);
   fit();
   requestAnimationFrame(tick);
+})();
+</script>
+
+<script>
+/* ================= Semantic cache threshold demo ================= */
+(function () {
+  var range = document.getElementById('semTh');
+  if (!range) return;
+  var Q = [
+    { q: 'how do i reset my password', sim: 0.97, same: true,  a: 200 },
+    { q: 'I forgot my password, how do I change it?', sim: 0.93, same: true,  a: 320 },
+    { q: 'Can I reset my password from the mobile app?', sim: 0.91, same: true, a: 40 },
+    { q: 'Password reset email never arrives', sim: 0.90, same: false, a: 120 },
+    { q: 'How do I reset my API key?', sim: 0.88, same: false, a: 255 },
+    { q: 'How do I delete my account?', sim: 0.84, same: false, a: 15 }
+  ];
+  var K = 1200, CX = 230, CY = 200;
+  var dots = document.getElementById('semDots'), ring = document.getElementById('semRing');
+  var list = document.getElementById('semList'), tally = document.getElementById('semTally'), out = document.getElementById('semTh-o');
+  var NS = 'http://www.w3.org/2000/svg';
+  function render() {
+    var th = parseFloat(range.value);
+    out.textContent = th.toFixed(2);
+    ring.setAttribute('r', String((1 - th) * K));
+    dots.innerHTML = ''; list.innerHTML = '';
+    var good = 0, bad = 0, waste = 0;
+    Q.forEach(function (x, i) {
+      var hit = x.sim >= th - 1e-9;
+      var cls, label;
+      if (hit && x.same) { cls = 'ok'; label = 'hit · right answer'; good++; }
+      else if (hit) { cls = 'bad'; label = 'hit · WRONG answer'; bad++; }
+      else if (x.same) { cls = 'waste'; label = 'miss · paid LLM call'; waste++; }
+      else { cls = ''; label = 'miss · correct'; }
+      var r = (1 - x.sim) * K, ang = x.a * Math.PI / 180;
+      var c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', (CX + r * Math.cos(ang)).toFixed(1));
+      c.setAttribute('cy', (CY + r * Math.sin(ang)).toFixed(1));
+      c.setAttribute('r', '8');
+      c.setAttribute('class', cls === 'ok' ? 'd-ok' : cls === 'bad' ? 'd-bad' : 'd-miss');
+      dots.appendChild(c);
+      var t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', (CX + r * Math.cos(ang)).toFixed(1));
+      t.setAttribute('y', (CY + r * Math.sin(ang) + 4).toFixed(1));
+      t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 't-dark');
+      t.textContent = String(i + 1);
+      dots.appendChild(t);
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="sim"></span><span class="qq"></span><span class="st"></span>';
+      li.querySelector('.sim').textContent = (i + 1) + ' · ' + x.sim.toFixed(2);
+      li.querySelector('.qq').textContent = '“' + x.q + '”';
+      if (!x.same) { var dd = document.createElement('span'); dd.className = 'diff'; dd.textContent = 'different intent'; li.querySelector('.qq').appendChild(dd); }
+      var st = li.querySelector('.st'); st.textContent = label; if (cls) st.classList.add(cls);
+      list.appendChild(li);
+    });
+    tally.innerHTML = '<span>right hits <b>' + good + '</b></span><span>wrong answers served <b>' + bad + '</b></span><span>avoidable LLM calls <b>' + waste + '</b></span>';
+  }
+  range.addEventListener('input', render);
+  render();
 })();
 </script>
 </body>
